@@ -233,10 +233,10 @@ private slots:
     }
 };
 
-// User Widget - Handles user functionality
 class UserWidget : public QWidget {
 private:
     UserService& userService;
+    FileManager* fileManager = nullptr;
 
     // Browse movies section
     QGroupBox* browseBox;
@@ -327,7 +327,7 @@ private:
 
         auto* fileNameLayout = new QHBoxLayout();
         fileNameLayout->addWidget(new QLabel("File Name:"));
-        watchlistFileEdit = new QLineEdit("watchlist.html");
+        watchlistFileEdit = new QLineEdit("watchlist");
         fileNameLayout->addWidget(watchlistFileEdit);
         fileLayout->addLayout(fileNameLayout);
 
@@ -341,6 +341,16 @@ private:
         mainLayout->addWidget(fileBox);
 
         connectSignalsSlots();
+        updateFileManager();
+        updateWatchlistTable();
+
+        // Start with all movies
+        try {
+            userService.listMoviesByGenre("");
+            updateCurrentMovieDisplay();
+        } catch (const std::exception& e) {
+            currentMovieDisplay->setText("No movies available");
+        }
     }
 
     void connectSignalsSlots() {
@@ -354,81 +364,201 @@ private:
         connect(fileFormatCombo, &QComboBox::currentTextChanged, this, &UserWidget::handleFileFormatChanged);
     }
 
+    void updateCurrentMovieDisplay() {
+        try {
+            Movie currentMovie = userService.getCurrentMovie();
+            QString movieInfo = QString::fromStdString(currentMovie.getOutputForm());
+            currentMovieDisplay->setText(movieInfo);
+        } catch (const std::exception& e) {
+            currentMovieDisplay->setText(e.what());
+        }
+    }
+
+    void updateWatchlistTable() {
+        watchlistTable->setRowCount(0);
+
+        try {
+            auto watchlist = userService.userGetWatchList();
+            watchlistTable->setRowCount(watchlist.size());
+
+            int row = 0;
+            for (const auto& movie : watchlist) {
+                watchlistTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(movie.getTitle())));
+                watchlistTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(movie.getGenre())));
+                watchlistTable->setItem(row, 2, new QTableWidgetItem(QString::number(movie.getYearOfRelease())));
+                watchlistTable->setItem(row, 3, new QTableWidgetItem(QString::number(movie.getNumberOfLikes())));
+                watchlistTable->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(movie.getTrailer())));
+                row++;
+            }
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
+    }
+
+    void updateFileManager() {
+        if (fileManager) {
+            delete fileManager;
+            fileManager = nullptr;
+        }
+
+        QString basePath = watchlistFileEdit->text();
+        if (fileFormatCombo->currentText() == "HTML") {
+            fileManager = new HTMLFileManager(basePath.toStdString());
+        } else {
+            fileManager = new CSVFileManager(basePath.toStdString());
+        }
+
+        userService.setWatchlistFileManager(fileManager);
+    }
+
 public:
     UserWidget(UserService& service, QWidget* parent = nullptr)
             : QWidget(parent), userService(service) {
         setupUI();
     }
 
+    ~UserWidget() {
+        if (fileManager) {
+            delete fileManager;
+        }
+    }
+
 private slots:
     void handleFilterByGenre() {
-        QMessageBox::information(this, "Filter", "Filtering by genre: " + genreFilterEdit->text());
+        try {
+            QString genre = genreFilterEdit->text();
+            userService.listMoviesByGenre(genre.toStdString());
+            updateCurrentMovieDisplay();
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleNextMovie() {
-        QMessageBox::information(this, "Navigation", "Moving to next movie");
+        try {
+            userService.goToNextMovieByGenre();
+            updateCurrentMovieDisplay();
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleAddToWatchlist() {
-        QMessageBox::information(this, "Watchlist", "Movie added to watchlist");
+        try {
+            userService.addMovieToWatchList();
+            updateWatchlistTable();
+            QMessageBox::information(this, "Success", "Movie added to watchlist");
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleOpenTrailer() {
-        QMessageBox::information(this, "Trailer", "Opening movie trailer");
+        try {
+            Movie currentMovie = userService.getCurrentMovie();
+            QString trailerUrl = QString::fromStdString(currentMovie.getTrailer());
+            QDesktopServices::openUrl(QUrl(trailerUrl));
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleDeleteFromWatchlist() {
-        QMessageBox::information(this, "Watchlist",
-                                 likeMovieCheckBox->isChecked() ?
-                                 "Movie deleted from watchlist and liked" :
-                                 "Movie deleted from watchlist");
+        auto selectedItems = watchlistTable->selectedItems();
+        if (selectedItems.empty()) {
+            QMessageBox::warning(this, "Error", "Please select a movie to delete");
+            return;
+        }
+
+        int row = watchlistTable->row(selectedItems[0]);
+        QString title = watchlistTable->item(row, 0)->text();
+
+        try {
+            bool like = likeMovieCheckBox->isChecked();
+            userService.deleteMovieFromWatchlist(title.toStdString(), like);
+
+            // Update both watchlist and current movie display if liked
+            updateWatchlistTable();
+            if (like) {
+                try {
+                    Movie currentMovie = userService.getCurrentMovie();
+                    if (currentMovie.getTitle() == title.toStdString()) {
+                        updateCurrentMovieDisplay();
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+
+            QString message = like ?
+                              "Movie deleted from watchlist and liked" :
+                              "Movie deleted from watchlist";
+            QMessageBox::information(this, "Success", message);
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleSaveWatchlist() {
-        QMessageBox::information(this, "File Operation",
-                                 "Saving watchlist to " + watchlistFileEdit->text());
+        try {
+            updateFileManager();
+            userService.saveWatchlist();
+            QMessageBox::information(this, "Success",
+                                     "Watchlist saved to " + watchlistFileEdit->text() +
+                                     "." + fileFormatCombo->currentText().toLower());
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleDisplayWatchlist() {
-        QMessageBox::information(this, "File Operation",
-                                 "Opening watchlist file: " + watchlistFileEdit->text());
+        try {
+            userService.displayWatchlist();
+        } catch (const std::exception& e) {
+            QMessageBox::warning(this, "Error", e.what());
+        }
     }
 
     void handleFileFormatChanged(const QString& format) {
-        QString extension = format.toLower();
-        watchlistFileEdit->setText("watchlist." + extension);
+        updateFileManager();
     }
 };
 
 // Main application window with tabs
 class MainWindow : public QMainWindow {
 private:
+    QTabWidget* tabWidget;
     Repository repository;
     AdminService adminService;
     UserService userService;
-    QTabWidget* tabWidget;
+    AdminWidget* adminWidget;
 
 public:
-    MainWindow(QWidget* parent = nullptr) :
-            QMainWindow(parent),
-            repository("movies.txt"), // Default repository file
-            adminService(repository),
-            userService(repository) {
-
-        setWindowTitle("Movie Management Application");
+    MainWindow(QWidget* parent = nullptr)
+            : QMainWindow(parent),
+              repository("movies.txt"),
+              adminService(repository),
+              userService(repository) {
+        setWindowTitle("Movie Manager Application");
         resize(800, 600);
 
-        // Create tab widget
         tabWidget = new QTabWidget();
         setCentralWidget(tabWidget);
 
         // Create and add admin widget
-        auto* adminWidget = new AdminWidget(adminService);
+        adminWidget = new AdminWidget(adminService);
         tabWidget->addTab(adminWidget, "Administrator");
 
         // Create and add user widget
         auto* userWidget = new UserWidget(userService);
         tabWidget->addTab(userWidget, "User");
+
+        // Connect tab change signal to refresh admin data
+        connect(tabWidget, &QTabWidget::currentChanged, this, [this](int index) {
+            // If switching to admin tab (index 0), refresh the movie list
+            if (index == 0) {
+                adminWidget->populateMovieList();
+            }
+        });
     }
 };
 
