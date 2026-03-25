@@ -1,20 +1,40 @@
-# Assignment 08-09
+# Movie Manager (Qt / C++)
 
-## Requirements
-- Create a graphical user interface using the Qt framework for the problem you have been working on for the previous assignments.
+A desktop Movie Manager application written in C++20 using Qt 6 (Widgets). Provides administrator and user interfaces to manage a movie catalog, maintain a watchlist, and persist watchlists in CSV or HTML formats.
 
-## Week 11
-- Implement the interface design, without using the Qt Designer. Use layouts to design your interface.
-- The list or table displaying the repository entities in administrator mode should be populated using your input file. 
+## Features
+- Administrator
+  - Add, update, delete movies
+  - Load repository from a file (`movies.txt`)
+  - Undo / redo operations
+- User
+  - Browse and filter movies by genre
+  - View movie details and open trailers
+  - Add / remove movies from a personal watchlist
+  - Save and display watchlist in `CSV` or `HTML`
+- Watchlist window with table view and undo/redo buttons
 
-## Week 12 
--	All functionalities must be available through the GUI. You may use Qt Designer, if you want to change the initial design of your GUI.
--	The functionality of the application must be the same (including the one-by-one iteration of objects for the user mode).
+## Architecture
+- Core: `Repository`, `AdminService`, `UserService`
+- Persistence: `FileManager` implementations (`CSVFileManager`, `HTMLFileManager`)
+- GUI: `main.cpp`, `WatchlistWindow.h/.cpp`, `WatchlistModel.h/.cpp`, `AdminWidget` and `UserWidget` in `main.cpp` (or split)
+- Model/View: `WatchlistTableModel` backed by repository/watchlist
 
-## Bonus possibility (0.2p, deadline week 12)
-Create a graphical representation of the data in your application. You have an example below: a bar chart representing the number of songs for each artist. Your representations can be a bar chart, a pie chart or another type of chart. You can even use circles or rectangles or any other geometric shapes to represent the data.
+## Technologies
+- C++20
+- Qt 6 (Qt Widgets)
+- CMake (with `AUTOMOC`)
+- Built with CLion on macOS (arm64 / Apple Silicon)
 
-Hint: You can use QPainter (https://doc.qt.io/qt-6/qpainter.html), QGraphicsScene (https://doc.qt.io/qt-6/qgraphicsscene.html) or a special widget designed for plotting and data visualisation – QCustomPlot (http://www.qcustomplot.com/).
+## Prerequisites
+- Qt 6 development libraries installed and visible to CMake
+- CMake (>= 3.16) and Ninja or another generator
+- CLion or another IDE (optional)
 
-<img width="704" alt="Screenshot 2021-04-17 at 20 24 04" src="https://user-images.githubusercontent.com/25611695/115121335-df0f7e00-9fba-11eb-8839-40cd55da1d69.png">
-
+## Build & Run (macOS / command line)
+```bash
+mkdir -p build && cd build
+cmake -S .. -B . -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="/path/to/Qt/6.x"
+cmake --build .
+# Run executable (name may vary)
+./a8_9_raulpop1
