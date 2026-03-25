@@ -392,7 +392,7 @@ private:
         connectSignalsSlots();
         updateFileManager();
 
-        // Start with all movies
+        // start with all movies
         try {
             userService.listMoviesByGenre("");
             updateCurrentMovieDisplay();
