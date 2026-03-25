@@ -1,27 +1,33 @@
 #pragma once
 #include "Repository.h"
+#include "FileManager.h"
+#include <vector>
+#include <string>
 
-class UserService
-{
+class UserService {
 private:
     Repository& repository;
-    std::vector<Movie> currentMoviesByGenre;
-    int currentMoviePosition;
+    std::vector<Movie> moviesFilteredByGenre;
+    int currentMovieIndex;
+    FileManager* fileManager = nullptr;
 
 public:
-    UserService(Repository& repository, int currentMoviePosition = 0);
+    explicit UserService(Repository& repository);
+    Repository& getRepository() { return repository; }
     std::vector<Movie> userGetMovieList();
     std::vector<Movie> userGetWatchList();
-    int listMoviesByGenre(const std::string& genreGiven);
-    int addMovieToWatchList();
-    int addMovieToWatchListByTitle(const std::string& titleOfTheMovieToAdd);
+    
+    void listMoviesByGenre(const std::string& genre);
+    Movie getCurrentMovie() const;
     void goToNextMovieByGenre();
-    Movie getCurrentMovie();
-    int getWatchListLength();
-    int getCurrentMoviesByGenreSize();
-    int getCurrentPosition();
-    int deleteMovieFromWatchlist(const std::string& title, bool like = false);
+    
+    int addMovieToWatchList();
+    int deleteMovieFromWatchlist(const std::string& title, bool likeMovie);
+    
     void setWatchlistFileManager(FileManager* fileManager);
-    void saveWatchlist() const;
-    void displayWatchlist() const;
+    void saveWatchlist();
+    void displayWatchlist();
+    
+    // Helper method for UI
+    int getCurrentMoviesByGenreSize() const { return moviesFilteredByGenre.size(); }
 };

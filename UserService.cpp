@@ -1,115 +1,107 @@
 #include "UserService.h"
-#include <iostream>
-/*
-    UserService constructor - repository - repository used
-                              currentMoviePosition - the index of the movie listed
-*/
-UserService::UserService(Repository& repository, int currentMoviePosition) : repository{ repository }, currentMoviePosition{ currentMoviePosition }, currentMoviesByGenre{repository.getAllMovies()}{}
+#include <stdexcept>
+#include <algorithm>
 
-//Get the list of all movies
-std::vector<Movie> UserService::userGetMovieList()
-{
+UserService::UserService(Repository& repository)
+    : repository{repository}, currentMovieIndex{0} {}
+
+std::vector<Movie> UserService::userGetMovieList() {
     return repository.getAllMovies();
 }
 
-//Get the list of movies in the watch list
-std::vector<Movie> UserService::userGetWatchList()
-{
+std::vector<Movie> UserService::userGetWatchList() {
     return repository.getAllWatchListMovies();
 }
 
-//Get the list of movies with a given genre
-int UserService::listMoviesByGenre(const std::string& genreGiven)
-{
-    currentMoviesByGenre = repository.getMoviesByGenre(genreGiven);
-    if (currentMoviesByGenre.size() == 0)
-        throw MovieAppException("No movies found with genre '" + genreGiven + "'");
-    currentMoviePosition = 0;
-    return 1;
-}
-
-//Add a movie to the watch list by the current movie position
-int UserService::addMovieToWatchList()
-{
-    if (currentMoviesByGenre.empty())
-        throw MovieAppException("No movies available to add to watchlist");
-
-    if (currentMoviePosition < 0 || currentMoviePosition >= currentMoviesByGenre.size())
-        throw MovieAppException("Invalid movie position");
-
-    return repository.addMovieToWatchlist(currentMoviesByGenre[currentMoviePosition]);
-}
-
-//Add a movie to the watch list by the given title
-int UserService::addMovieToWatchListByTitle(const std::string& titleOfTheMovieToAdd)
-{
-    return repository.addMovieToWatchListByTitle(titleOfTheMovieToAdd);
-}
-
-//Iterate to the next movie in the list
-void UserService::goToNextMovieByGenre()
-{
-    if (currentMoviesByGenre.empty())
-        throw MovieAppException("No movies available in the current list");
-
-    currentMoviePosition++;
-    if(currentMoviePosition == currentMoviesByGenre.size())
-        currentMoviePosition = 0;
-}
-
-//Get the length of the watch list
-int UserService::getWatchListLength()
-{
-    return repository.getNumberOfMoviesWatchList();
-}
-
-//Get the current movie in the list
-Movie UserService::getCurrentMovie()
-{
-    if (currentMoviesByGenre.empty())
-        throw MovieAppException("No movies available in the current list");
-
-    if (currentMoviePosition < 0 || currentMoviePosition >= currentMoviesByGenre.size())
-        throw MovieAppException("Invalid movie position");
-
-    return currentMoviesByGenre[currentMoviePosition];
-}
-
-//Get the size of the currentMoviesByGenre list
-int UserService::getCurrentMoviesByGenreSize()
-{
-    return currentMoviesByGenre.size();
-}
-
-//Get the current position in the movie list
-int UserService::getCurrentPosition()
-{
-    return currentMoviePosition;
-}
-
-//Delete a movie from watch list with option to like it
-int UserService::deleteMovieFromWatchlist(const std::string& title, bool like)
-{
-    try {
-        if (like)
-            repository.likeMovie(title);
+void UserService::listMoviesByGenre(const std::string& genre) {
+    moviesFilteredByGenre = repository.getMoviesByGenre(genre);
+    if (moviesFilteredByGenre.empty()) {
+        throw std::runtime_error("No movies found for the given genre!");
     }
-    catch (const RepositoryException& e) {
-        // If liking fails, we still want to try to delete from watchlist
-        // so we just continue
+    currentMovieIndex = 0;
+}
+
+Movie UserService::getCurrentMovie() const {
+    if (moviesFilteredByGenre.empty()) {
+        throw std::runtime_error("No movies available!");
+    }
+    
+    if (currentMovieIndex < 0 || currentMovieIndex >= moviesFilteredByGenre.size()) {
+        throw std::runtime_error("Invalid movie index!");
+    }
+    
+    return moviesFilteredByGenre[currentMovieIndex];
+}
+
+void UserService::goToNextMovieByGenre() {
+    if (moviesFilteredByGenre.empty()) {
+        throw std::runtime_error("No movies available!");
+    }
+    
+    currentMovieIndex++;
+    if (currentMovieIndex == moviesFilteredByGenre.size()) {
+        currentMovieIndex = 0;
+    }
+}
+
+int UserService::addMovieToWatchList() {
+    if (moviesFilteredByGenre.empty()) {
+        throw std::runtime_error("No movies available to add to watchlist!");
+    }
+    
+    if (currentMovieIndex < 0 || currentMovieIndex >= moviesFilteredByGenre.size()) {
+        throw std::runtime_error("Invalid movie index!");
+    }
+    
+    return repository.addMovieToWatchlist(moviesFilteredByGenre[currentMovieIndex]);
+}
+
+int UserService::deleteMovieFromWatchlist(const std::string& title, bool likeMovie) {
+    Movie movieToDelete;
+    auto watchlist = repository.getAllWatchListMovies();
+    auto it = std::find_if(watchlist.begin(), watchlist.end(),
+                           [&title](const Movie& m) { return m.getTitle() == title; });
+
+    if (it == watchlist.end()) {
+        throw std::runtime_error("Movie not found in watchlist!");
     }
 
-    return repository.deleteMovieFromWatchlist(title);
+    movieToDelete = *it;
+
+    if (likeMovie) {
+        // Increase likes for the movie in the main repository
+        auto allMovies = repository.getAllMovies();
+        for (auto& movie : allMovies) {
+            if (movie.getTitle() == title) {
+                Movie updatedMovie = movie;
+                updatedMovie.setNumberOfLikes(movie.getNumberOfLikes() + 1);
+                repository.updateMovie(updatedMovie);
+                break;
+            }
+        }
+    }
+
+    // Fix: Pass the title string instead of the Movie object
+    return repository.deleteMovieFromWatchlist(movieToDelete.getTitle());
 }
 
-void UserService::setWatchlistFileManager(FileManager* fileManager) {
-    repository.setWatchlistFileManager(fileManager);
+void UserService::setWatchlistFileManager(FileManager* manager) {
+    fileManager = manager;
 }
 
-void UserService::saveWatchlist() const {
-    repository.saveWatchlist();
+void UserService::saveWatchlist() {
+    if (!fileManager) {
+        throw std::runtime_error("No file manager set!");
+    }
+
+    // Fix: Change writeToFile to saveToFile
+    fileManager->saveToFile(repository.getAllWatchListMovies());
 }
 
-void UserService::displayWatchlist() const {
-    repository.displayWatchlist();
+void UserService::displayWatchlist() {
+    if (!fileManager) {
+        throw std::runtime_error("No file manager set!");
+    }
+    
+    fileManager->displayFile();
 }

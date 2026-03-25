@@ -16,10 +16,14 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QShortcut>
+#include <QKeySequence>
 #include "Repository.h"
 #include "AdminService.h"
 #include "UserService.h"
 #include "FileManager.h"
+#include "WatchlistModel.h"
+#include "WatchlistWindow.h"
 
 // Admin Widget - Handles administrator functionality
 class AdminWidget : public QWidget {
@@ -40,6 +44,8 @@ private:
     QPushButton* updateButton;
     QLineEdit* fileNameEdit;
     QPushButton* loadButton;
+    QPushButton* undoButton;
+    QPushButton* redoButton;
 
     void setupUI() {
         auto* mainLayout = new QVBoxLayout(this);
@@ -92,6 +98,13 @@ private:
         buttonLayout->addWidget(deleteButton);
         mainLayout->addLayout(buttonLayout);
 
+        auto* undoRedoLayout = new QHBoxLayout();
+        undoButton = new QPushButton("Undo");
+        redoButton = new QPushButton("Redo");
+        undoRedoLayout->addWidget(undoButton);
+        undoRedoLayout->addWidget(redoButton);
+        mainLayout->addLayout(undoRedoLayout);
+
         connectSignalsSlots();
         populateMovieList();
     }
@@ -102,7 +115,39 @@ private:
         connect(updateButton, &QPushButton::clicked, this, &AdminWidget::handleUpdateMovie);
         connect(deleteButton, &QPushButton::clicked, this, &AdminWidget::handleDeleteMovie);
         connect(movieTable, &QTableWidget::itemSelectionChanged, this, &AdminWidget::handleMovieSelection);
+        connect(undoButton, &QPushButton::clicked, this, &AdminWidget::handleUndo);
+        connect(redoButton, &QPushButton::clicked, this, &AdminWidget::handleRedo);
+
+        // Add undo/redo shortcuts
+        auto* undoShortcut = new QShortcut(QKeySequence("Ctrl+Z"), this);
+        auto* redoShortcut = new QShortcut(QKeySequence("Ctrl+Y"), this);
+        connect(undoShortcut, &QShortcut::activated, this, &AdminWidget::handleUndo);
+        connect(redoShortcut, &QShortcut::activated, this, &AdminWidget::handleRedo);
     }
+
+private slots:
+    void handleUndo() {
+        try {
+            adminService.undo();
+            populateMovieList();
+            clearForm();
+            QMessageBox::information(this, "Success", "Operation undone successfully");
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Error", e.what());
+        }
+    }
+
+    void handleRedo() {
+        try {
+            adminService.redo();
+            populateMovieList();
+            clearForm();
+            QMessageBox::information(this, "Success", "Operation redone successfully");
+        } catch (const std::exception& e) {
+            QMessageBox::critical(this, "Error", e.what());
+        }
+    }
+
 
 public:
     AdminWidget(AdminService& service, QWidget* parent = nullptr)
@@ -249,7 +294,7 @@ private:
 
     // Watchlist section
     QGroupBox* watchlistBox;
-    QTableWidget* watchlistTable;
+    QTableView* watchlistTableView;
     QPushButton* deleteFromWatchlistButton;
     QCheckBox* likeMovieCheckBox;
 
@@ -259,6 +304,9 @@ private:
     QLineEdit* watchlistFileEdit;
     QPushButton* saveWatchlistButton;
     QPushButton* displayWatchlistButton;
+
+    // Watchlist model
+    WatchlistTableModel* watchlistModel;
 
     void setupUI() {
         auto* mainLayout = new QVBoxLayout(this);
@@ -296,13 +344,14 @@ private:
         watchlistBox = new QGroupBox("My Watchlist");
         auto* watchlistLayout = new QVBoxLayout(watchlistBox);
 
-        watchlistTable = new QTableWidget();
-        watchlistTable->setColumnCount(5);
-        watchlistTable->setHorizontalHeaderLabels({"Title", "Genre", "Year", "Likes", "Trailer"});
-        watchlistTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-        watchlistTable->setSelectionBehavior(QTableWidget::SelectRows);
-        watchlistTable->setEditTriggers(QTableWidget::NoEditTriggers);
-        watchlistLayout->addWidget(watchlistTable);
+        // Create QTableView with custom model
+        watchlistTableView = new QTableView();
+        watchlistModel = new WatchlistTableModel(userService.getRepository(), watchlistTableView);
+        watchlistTableView->setModel(watchlistModel);
+        watchlistTableView->setSelectionBehavior(QAbstractItemView::SelectRows);
+        watchlistTableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        watchlistTableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        watchlistLayout->addWidget(watchlistTableView);
 
         auto* watchlistButtonLayout = new QHBoxLayout();
         deleteFromWatchlistButton = new QPushButton("Delete from Watchlist");
@@ -342,7 +391,6 @@ private:
 
         connectSignalsSlots();
         updateFileManager();
-        updateWatchlistTable();
 
         // Start with all movies
         try {
@@ -374,27 +422,6 @@ private:
         }
     }
 
-    void updateWatchlistTable() {
-        watchlistTable->setRowCount(0);
-
-        try {
-            auto watchlist = userService.userGetWatchList();
-            watchlistTable->setRowCount(watchlist.size());
-
-            int row = 0;
-            for (const auto& movie : watchlist) {
-                watchlistTable->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(movie.getTitle())));
-                watchlistTable->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(movie.getGenre())));
-                watchlistTable->setItem(row, 2, new QTableWidgetItem(QString::number(movie.getYearOfRelease())));
-                watchlistTable->setItem(row, 3, new QTableWidgetItem(QString::number(movie.getNumberOfLikes())));
-                watchlistTable->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(movie.getTrailer())));
-                row++;
-            }
-        } catch (const std::exception& e) {
-            QMessageBox::warning(this, "Error", e.what());
-        }
-    }
-
     void updateFileManager() {
         if (fileManager) {
             delete fileManager;
@@ -421,6 +448,7 @@ public:
         if (fileManager) {
             delete fileManager;
         }
+        delete watchlistModel;
     }
 
 private slots:
@@ -446,7 +474,7 @@ private slots:
     void handleAddToWatchlist() {
         try {
             userService.addMovieToWatchList();
-            updateWatchlistTable();
+            watchlistModel->refresh();
             QMessageBox::information(this, "Success", "Movie added to watchlist");
         } catch (const std::exception& e) {
             QMessageBox::warning(this, "Error", e.what());
@@ -464,33 +492,23 @@ private slots:
     }
 
     void handleDeleteFromWatchlist() {
-        auto selectedItems = watchlistTable->selectedItems();
-        if (selectedItems.empty()) {
+        auto selectedIndexes = watchlistTableView->selectionModel()->selectedIndexes();
+        if (selectedIndexes.empty()) {
             QMessageBox::warning(this, "Error", "Please select a movie to delete");
             return;
         }
 
-        int row = watchlistTable->row(selectedItems[0]);
-        QString title = watchlistTable->item(row, 0)->text();
+        int row = selectedIndexes.first().row();
+        QModelIndex index = watchlistModel->index(row, 0);
+        QString title = watchlistModel->data(index, Qt::DisplayRole).toString();
 
         try {
             bool like = likeMovieCheckBox->isChecked();
             userService.deleteMovieFromWatchlist(title.toStdString(), like);
-
-            // Update both watchlist and current movie display if liked
-            updateWatchlistTable();
-            if (like) {
-                try {
-                    Movie currentMovie = userService.getCurrentMovie();
-                    if (currentMovie.getTitle() == title.toStdString()) {
-                        updateCurrentMovieDisplay();
-                    }
-                } catch (const std::exception&) {
-                }
-            }
+            watchlistModel->refresh();
 
             QString message = like ?
-                              "Movie deleted from watchlist and liked" :
+                              "Movie deleted from watchlist and liked! The number of likes has been increased." :
                               "Movie deleted from watchlist";
             QMessageBox::information(this, "Success", message);
         } catch (const std::exception& e) {
@@ -525,12 +543,15 @@ private slots:
 
 // Main application window with tabs
 class MainWindow : public QMainWindow {
+Q_OBJECT
+
 private:
     QTabWidget* tabWidget;
     Repository repository;
     AdminService adminService;
     UserService userService;
     AdminWidget* adminWidget;
+    WatchlistWindow* watchlistWindow;
 
 public:
     MainWindow(QWidget* parent = nullptr)
@@ -538,11 +559,12 @@ public:
               repository("movies.txt"),
               adminService(repository),
               userService(repository) {
+        // Window setup
         setWindowTitle("Movie Manager Application");
         resize(800, 600);
 
+        // Create tabs
         tabWidget = new QTabWidget();
-        setCentralWidget(tabWidget);
 
         // Create and add admin widget
         adminWidget = new AdminWidget(adminService);
@@ -552,12 +574,40 @@ public:
         auto* userWidget = new UserWidget(userService);
         tabWidget->addTab(userWidget, "User");
 
-        // Connect tab change signal to refresh admin data
+        // Create watchlist window
+        watchlistWindow = new WatchlistWindow(repository);
+        QPushButton* openWatchlistButton = new QPushButton("Open Watchlist");
+        connect(openWatchlistButton, &QPushButton::clicked, [this]() {
+            watchlistWindow->show();
+            watchlistWindow->refreshWatchlist();
+        });
+
+        // Layout for main window
+        QVBoxLayout* mainLayout = new QVBoxLayout();
+        mainLayout->addWidget(tabWidget);
+        mainLayout->addWidget(openWatchlistButton);
+
+        QWidget* central = new QWidget();
+        central->setLayout(mainLayout);
+        setCentralWidget(central);
+
+        // Connect signals and slots
         connect(tabWidget, &QTabWidget::currentChanged, this, [this](int index) {
-            // If switching to admin tab (index 0), refresh the movie list
             if (index == 0) {
                 adminWidget->populateMovieList();
             }
+        });
+
+        connect(watchlistWindow, &WatchlistWindow::undoRequested, [this]() {
+            adminService.undo();
+            adminWidget->populateMovieList();
+            watchlistWindow->refreshWatchlist();
+        });
+
+        connect(watchlistWindow, &WatchlistWindow::redoRequested, [this]() {
+            adminService.redo();
+            adminWidget->populateMovieList();
+            watchlistWindow->refreshWatchlist();
         });
     }
 };
@@ -570,3 +620,4 @@ int main(int argc, char *argv[]) {
 
     return app.exec();
 }
+#include "main.moc"
